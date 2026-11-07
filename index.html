@@ -551,6 +551,23 @@
     </div>
   </div>
 
+  <!-- IMMERSIVE SENSITIVE ACTION WARNING MODAL -->
+  <div id="sensitive-warning-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
+    <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col p-6 space-y-4 text-center">
+      <div class="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center text-2xl mx-auto shadow-inner border border-rose-100">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+      </div>
+      <div class="space-y-1">
+        <h3 class="font-bold text-slate-900 text-base">Sensitive Action Warning</h3>
+        <p class="text-xs text-slate-500 leading-relaxed">You are about to permanently delete a critical financial or record entry. This operation cannot be undone. Are you sure you want to proceed?</p>
+      </div>
+      <div class="flex space-x-2 pt-2">
+        <button onclick="closeSensitiveModal()" class="w-1/2 bg-slate-100 text-slate-700 font-semibold py-3 rounded-2xl text-xs" data-i18n="cancel">Cancel</button>
+        <button id="sensitive-confirm-btn" class="w-1/2 bg-rose-600 hover:bg-rose-700 text-white font-semibold py-3 rounded-2xl text-xs shadow-md shadow-rose-200">Yes, Delete</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const translations = {
       en: {
@@ -1051,6 +1068,25 @@
     let salesChartInstance = null;
     let currentChartPeriod = 'daily';
 
+    let pendingSensitiveAction = null;
+
+    function confirmSensitiveAction(actionCallback) {
+      pendingSensitiveAction = actionCallback;
+      document.getElementById('sensitive-warning-modal').classList.remove('hidden');
+    }
+
+    function closeSensitiveModal() {
+      pendingSensitiveAction = null;
+      document.getElementById('sensitive-warning-modal').classList.add('hidden');
+    }
+
+    document.getElementById('sensitive-confirm-btn').addEventListener('click', () => {
+      if (pendingSensitiveAction) {
+        pendingSensitiveAction();
+      }
+      closeSensitiveModal();
+    });
+
     function toggleSidebar() {
       const menu = document.getElementById('sidebar-menu');
       const backdrop = document.getElementById('sidebar-backdrop');
@@ -1083,13 +1119,13 @@
       } else if (user === 'Mafica' && pass === 'Superuser') {
         currentUser = { username: 'Mafica', role: 'superuser' };
       } else {
-        errEl.classList.remove('hidden');
+        if (errEl) errEl.classList.remove('hidden');
         return;
       }
 
       sessionStorage.setItem('storeos_user', JSON.stringify(currentUser));
       document.getElementById('login-overlay').classList.add('hidden');
-      errEl.classList.add('hidden');
+      if (errEl) errEl.classList.add('hidden');
       initApp();
     }
 
@@ -1354,8 +1390,6 @@
         setTimeout(() => renderSalesChart(currentChartPeriod), 50);
 
       } else if (currentView === 'sales') {
-        let filteredProducts = (db.products || []).filter(p => p.stock > 0 && p.name.toLowerCase().includes(posSearchQuery.toLowerCase()));
-
         container.innerHTML = `
           <div class="space-y-3 pb-16">
             <div class="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-sm space-y-3">
@@ -1366,26 +1400,15 @@
               <input type="text" id="pos-search-input" value="${posSearchQuery}" oninput="handlePosSearch(this.value)" placeholder="🔍 Search product name..." class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-500">
             </div>
 
-            <div class="grid grid-cols-2 gap-2.5">
-              ${filteredProducts.length === 0 ? `<p class="text-xs text-slate-400 col-span-2 text-center py-6" data-i18n="no_matching_prod">No matching products found.</p>` :
-                filteredProducts.map(p => `
-                  <button onclick="addToCart('${p.id}')" class="bg-white p-3.5 rounded-3xl border border-slate-200/80 text-left active:scale-[0.98] transition space-y-1 shadow-sm">
-                    <p class="font-bold text-slate-800 text-xs truncate">${p.name}</p>
-                    <p class="text-indigo-600 font-extrabold text-xs">${formatRupiah(p.price)}</p>
-                    <span class="text-[9px] text-slate-400 block">Stock: ${p.stock} pcs</span>
-                  </button>
-                `).join('')}
+            <div id="pos-products-list" class="grid grid-cols-2 gap-2.5">
+              <!-- Rendered via renderPosList() -->
             </div>
           </div>
         `;
+        renderPosList();
         updateFloatingCartUI();
 
       } else if (currentView === 'receipt_history') {
-        let filteredSales = (db.sales || []).filter(s => 
-          s.id.toLowerCase().includes(receiptSearchQuery.toLowerCase()) || 
-          s.customer_name.toLowerCase().includes(receiptSearchQuery.toLowerCase())
-        );
-
         container.innerHTML = `
           <div class="space-y-3 pb-16">
             <div class="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-sm space-y-3">
@@ -1396,34 +1419,15 @@
               <input type="text" id="receipt-search-input" value="${receiptSearchQuery}" oninput="handleReceiptSearch(this.value)" placeholder="🔍 Search customer name or transaction ID..." class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-500">
             </div>
 
-            <div class="space-y-2">
-              ${filteredSales.length === 0 ? `<p class="text-xs text-slate-400 text-center py-8" data-i18n="no_sales_found">No sales history recorded.</p>` :
-                filteredSales.slice().reverse().map(s => `
-                  <div class="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-sm flex justify-between items-center text-xs">
-                    <div class="space-y-1">
-                      <div class="flex items-center space-x-2">
-                        <span class="font-bold text-slate-900">#${s.id}</span>
-                        <span class="text-[9px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold">${s.payment_method}</span>
-                      </div>
-                      <p class="text-[11px] font-semibold text-slate-700"><i class="fa-solid fa-user text-slate-400 mr-1"></i> ${s.customer_name}</p>
-                      <p class="text-[10px] text-slate-400">${s.date} • <span class="uppercase text-slate-500 font-bold">${s.cashier}</span></p>
-                    </div>
-                    <div class="text-right space-y-2">
-                      <span class="font-extrabold text-indigo-600 block text-sm">${formatRupiah(s.total)}</span>
-                      <button onclick="viewSaleReceipt('${s.id}')" class="bg-teal-50 hover:bg-teal-100 text-teal-700 px-3 py-1.5 rounded-xl font-bold text-[10px] transition flex items-center space-x-1 ml-auto">
-                        <i class="fa-solid fa-receipt"></i>
-                        <span data-i18n="view_receipt">View Receipt</span>
-                      </button>
-                    </div>
-                  </div>
-                `).join('')}
+            <div id="receipt-history-list" class="space-y-2">
+              <!-- Rendered via renderReceiptList() -->
             </div>
           </div>
         `;
+        renderReceiptList();
 
       } else if (currentView === 'stock') {
         let isSuper = currentUser.role === 'superuser';
-        let filteredInv = (db.products || []).filter(p => p.name.toLowerCase().includes(invSearchQuery.toLowerCase()));
 
         container.innerHTML = `
           <div class="space-y-3 pb-16">
@@ -1438,27 +1442,12 @@
               <input type="text" id="inv-search-input" value="${invSearchQuery}" oninput="handleInvSearch(this.value)" placeholder="🔍 Search inventory..." class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-500">
             </div>
 
-            <div class="space-y-2">
-              ${filteredInv.length === 0 ? `<p class="text-xs text-slate-400 text-center py-6" data-i18n="no_inv_found">No inventory products found.</p>` :
-                filteredInv.map(p => `
-                  <div class="bg-white p-3.5 rounded-3xl border border-slate-200/80 shadow-sm flex justify-between items-center text-xs">
-                    <div class="space-y-0.5">
-                      <p class="font-bold text-slate-900">${p.name} <span class="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded ml-1">${p.category || 'General'}</span></p>
-                      <p class="text-[10px] text-slate-500">Sell: ${formatRupiah(p.price)} | Cost: ${isSuper ? formatRupiah(p.cost) : '•••'}</p>
-                      <p class="text-[9px] text-indigo-600 font-semibold">Stock: <span class="${p.stock <= p.min ? 'text-amber-600 font-extrabold' : 'text-emerald-600'}">${p.stock} pcs</span> • Min: ${p.min}</p>
-                    </div>
-                    <div class="flex items-center space-x-1">
-                      <button onclick="openRestockModal('${p.id}')" class="bg-indigo-50 text-indigo-600 w-8 h-8 rounded-xl flex items-center justify-center font-bold" title="Restock"><i class="fa-solid fa-plus text-xs"></i></button>
-                      ${isSuper ? `
-                        <button onclick="openEditProductModal('${p.id}')" class="bg-slate-100 text-slate-600 w-8 h-8 rounded-xl flex items-center justify-center font-bold" title="Edit"><i class="fa-solid fa-pen text-xs"></i></button>
-                        <button onclick="deleteProduct('${p.id}')" class="bg-rose-50 text-rose-600 w-8 h-8 rounded-xl flex items-center justify-center font-bold" title="Delete"><i class="fa-solid fa-trash text-xs"></i></button>
-                      ` : ''}
-                    </div>
-                  </div>
-                `).join('')}
+            <div id="inv-products-list" class="space-y-2">
+              <!-- Rendered via renderInvList() -->
             </div>
           </div>
         `;
+        renderInvList();
 
       } else if (currentView === 'reports') {
         container.innerHTML = `
@@ -1709,6 +1698,87 @@
       applyTranslations();
     }
 
+    // NON-DESTRUCTIVE SEARCH DOM RENDERERS (Fixes mobile keyboard auto-close bug)
+    function renderPosList() {
+      let container = document.getElementById('pos-products-list');
+      if (!container) return;
+      let filtered = (db.products || []).filter(p => p.stock > 0 && p.name.toLowerCase().includes(posSearchQuery.toLowerCase()));
+      if (filtered.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-400 col-span-2 text-center py-6" data-i18n="no_matching_prod">No matching products found.</p>`;
+      } else {
+        container.innerHTML = filtered.map(p => `
+          <button onclick="addToCart('${p.id}')" class="bg-white p-3.5 rounded-3xl border border-slate-200/80 text-left active:scale-[0.98] transition space-y-1 shadow-sm">
+            <p class="font-bold text-slate-800 text-xs truncate">${p.name}</p>
+            <p class="text-indigo-600 font-extrabold text-xs">${formatRupiah(p.price)}</p>
+            <span class="text-[9px] text-slate-400 block">Stock: ${p.stock} pcs</span>
+          </button>
+        `).join('');
+      }
+    }
+
+    function renderInvList() {
+      let container = document.getElementById('inv-products-list');
+      if (!container) return;
+      let isSuper = currentUser.role === 'superuser';
+      let filtered = (db.products || []).filter(p => p.name.toLowerCase().includes(invSearchQuery.toLowerCase()));
+      if (filtered.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-400 text-center py-6" data-i18n="no_inv_found">No inventory products found.</p>`;
+      } else {
+        container.innerHTML = filtered.map(p => `
+          <div class="bg-white p-3.5 rounded-3xl border border-slate-200/80 shadow-sm flex justify-between items-center text-xs">
+            <div class="space-y-0.5">
+              <p class="font-bold text-slate-900">${p.name} <span class="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded ml-1">${p.category || 'General'}</span></p>
+              <p class="text-[10px] text-slate-500">Sell: ${formatRupiah(p.price)} | Cost: ${isSuper ? formatRupiah(p.cost) : '•••'}</p>
+              <p class="text-[9px] text-indigo-600 font-semibold">Stock: <span class="${p.stock <= p.min ? 'text-amber-600 font-extrabold' : 'text-emerald-600'}">${p.stock} pcs</span> • Min: ${p.min}</p>
+            </div>
+            <div class="flex items-center space-x-1">
+              <button onclick="openRestockModal('${p.id}')" class="bg-indigo-50 text-indigo-600 w-8 h-8 rounded-xl flex items-center justify-center font-bold" title="Restock"><i class="fa-solid fa-plus text-xs"></i></button>
+              ${isSuper ? `
+                <button onclick="openEditProductModal('${p.id}')" class="bg-slate-100 text-slate-600 w-8 h-8 rounded-xl flex items-center justify-center font-bold" title="Edit"><i class="fa-solid fa-pen text-xs"></i></button>
+                <button onclick="deleteProduct('${p.id}')" class="bg-rose-50 text-rose-600 w-8 h-8 rounded-xl flex items-center justify-center font-bold" title="Delete"><i class="fa-solid fa-trash text-xs"></i></button>
+              ` : ''}
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    function renderReceiptList() {
+      let container = document.getElementById('receipt-history-list');
+      if (!container) return;
+      let filtered = (db.sales || []).filter(s => 
+        s.id.toLowerCase().includes(receiptSearchQuery.toLowerCase()) || 
+        s.customer_name.toLowerCase().includes(receiptSearchQuery.toLowerCase())
+      );
+      if (filtered.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-400 text-center py-8" data-i18n="no_sales_found">No sales history recorded.</p>`;
+      } else {
+        container.innerHTML = filtered.slice().reverse().map(s => `
+          <div class="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-sm flex justify-between items-center text-xs">
+            <div class="space-y-1">
+              <div class="flex items-center space-x-2">
+                <span class="font-bold text-slate-900">#${s.id}</span>
+                <span class="text-[9px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold">${s.payment_method}</span>
+              </div>
+              <p class="text-[11px] font-semibold text-slate-700"><i class="fa-solid fa-user text-slate-400 mr-1"></i> ${s.customer_name}</p>
+              <p class="text-[10px] text-slate-400">${s.date} • <span class="uppercase text-slate-500 font-bold">${s.cashier}</span></p>
+            </div>
+            <div class="text-right space-y-2">
+              <span class="font-extrabold text-indigo-600 block text-sm">${formatRupiah(s.total)}</span>
+              <button onclick="viewSaleReceipt('${s.id}')" class="bg-teal-50 hover:bg-teal-100 text-teal-700 px-3 py-1.5 rounded-xl font-bold text-[10px] transition flex items-center space-x-1 ml-auto">
+                <i class="fa-solid fa-receipt"></i>
+                <span data-i18n="view_receipt">View Receipt</span>
+              </button>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    function handlePosSearch(val) { posSearchQuery = val; renderPosList(); }
+    function handleInvSearch(val) { invSearchQuery = val; renderInvList(); }
+    function handleReceiptSearch(val) { receiptSearchQuery = val; renderReceiptList(); }
+
     function toggleDatePickers(val) {
       document.getElementById('daily-picker-container').classList.add('hidden');
       document.getElementById('monthly-picker-container').classList.add('hidden');
@@ -1716,10 +1786,37 @@
       if (val === 'monthly') document.getElementById('monthly-picker-container').classList.remove('hidden');
     }
 
+    // MULTI-SHEET EXCEL EXPORT (Separated Tables cleanly into distinct worksheets)
     function generateExcelWorkbook() {
       let type = document.getElementById('report-type-select').value;
       let timeframe = document.getElementById('report-timeframe-select').value;
       let wb = XLSX.utils.book_new();
+
+      if (type === 'financial') {
+        let fundRows = (db.funds || []).map(f => ({
+          "Entry ID": f.id,
+          "Type": f.type,
+          "Description": f.desc,
+          "Amount (Rp)": f.amount,
+          "Date": f.date
+        }));
+
+        let expenseRows = (db.expenses || []).map(e => ({
+          "Expense ID": e.id,
+          "Title": e.title,
+          "Category": e.category,
+          "Amount (Rp)": e.amount,
+          "Date": e.date
+        }));
+
+        let wsFunds = XLSX.utils.json_to_sheet(fundRows);
+        let wsExpenses = XLSX.utils.json_to_sheet(expenseRows);
+
+        XLSX.utils.book_append_sheet(wb, wsFunds, "Fund Movements");
+        XLSX.utils.book_append_sheet(wb, wsExpenses, "Operating Expenses");
+        XLSX.writeFile(wb, "TokoMafica_Financial_Report.xlsx");
+        return;
+      }
 
       if (type === 'sales') {
         let salesData = db.sales || [];
@@ -1768,19 +1865,6 @@
         let ws = XLSX.utils.json_to_sheet(sheetRows);
         XLSX.utils.book_append_sheet(wb, ws, "Inventory_Report");
         XLSX.writeFile(wb, "TokoMafica_Inventory_Report.xlsx");
-
-      } else if (type === 'financial') {
-        let expData = db.expenses || [];
-        let sheetRows = expData.map(e => ({
-          "Expense ID": e.id,
-          "Title": e.title,
-          "Category": e.category,
-          "Date": e.date,
-          "Amount (Rp)": e.amount
-        }));
-        let ws = XLSX.utils.json_to_sheet(sheetRows);
-        XLSX.utils.book_append_sheet(wb, ws, "Financial_Report");
-        XLSX.writeFile(wb, "TokoMafica_Financial_Report.xlsx");
 
       } else if (type === 'stock_movement') {
         let logsData = db.logs || [];
@@ -1888,10 +1972,6 @@
       renderSalesChart(period);
     }
 
-    function handlePosSearch(val) { posSearchQuery = val; render(); }
-    function handleInvSearch(val) { invSearchQuery = val; render(); }
-    function handleReceiptSearch(val) { receiptSearchQuery = val; render(); }
-
     function viewSaleReceipt(id) {
       let s = (db.sales || []).find(sale => sale.id === id);
       if (s) showReceiptModal(s);
@@ -1937,6 +2017,13 @@
 
       if (!name || !price) { alert('Please enter product name and price.'); return; }
 
+      // Prevent duplicate product names (case-insensitive)
+      let duplicate = db.products.find(p => p.name.toLowerCase() === name.toLowerCase() && p.id !== editId);
+      if (duplicate) {
+        alert(`Product "${name}" already exists in inventory! Please use a different name or edit the existing item.`);
+        return;
+      }
+
       if (editId) {
         let p = db.products.find(prod => prod.id === editId);
         if (p) { p.name = name; p.category = category; p.price = price; p.cost = cost; p.stock = stock; p.min = min; }
@@ -1951,11 +2038,11 @@
     }
 
     function deleteProduct(id) {
-      if (confirm("Are you sure you want to delete this product?")) {
+      confirmSensitiveAction(() => {
         db.products = db.products.filter(p => p.id !== id);
         saveData();
         render();
-      }
+      });
     }
 
     // SUPPLIER MODALS
@@ -2003,11 +2090,11 @@
     }
 
     function deleteSupplier(id) {
-      if (confirm("Are you sure you want to delete this supplier?")) {
+      confirmSensitiveAction(() => {
         db.suppliers = db.suppliers.filter(s => s.id !== id);
         saveData();
         render();
-      }
+      });
     }
 
     // EXPENSE MODALS
@@ -2053,11 +2140,11 @@
     }
 
     function deleteExpense(id) {
-      if (confirm("Delete this expense?")) {
+      confirmSensitiveAction(() => {
         db.expenses = db.expenses.filter(e => e.id !== id);
         saveData();
         render();
-      }
+      });
     }
 
     // PURCHASE ORDER MODALS
@@ -2115,11 +2202,11 @@
     }
 
     function deletePo(id) {
-      if (confirm("Are you sure you want to delete this purchase order?")) {
+      confirmSensitiveAction(() => {
         db.purchases = db.purchases.filter(p => p.id !== id);
         saveData();
         render();
-      }
+      });
     }
 
     // FUND IN / FUND OUT MODALS
@@ -2144,11 +2231,11 @@
     }
 
     function deleteFundEntry(id) {
-      if (confirm("Delete this fund entry?")) {
+      confirmSensitiveAction(() => {
         db.funds = db.funds.filter(f => f.id !== id);
         saveData();
         render();
-      }
+      });
     }
 
     function openRestockModal(id) {
@@ -2232,7 +2319,6 @@
       closeCartModal();
       updateFloatingCartUI();
       
-      // Automatically popup receipt modal for thermal printing
       showReceiptModal(newSaleObj);
       render();
     }
@@ -2246,11 +2332,11 @@
     }
 
     function resetDataSafely() {
-      if (confirm("Reset database? All records will be cleared.")) {
+      confirmSensitiveAction(() => {
         db = { products: [], sales: [], purchases: [], suppliers: [], expenses: [], funds: [], logs: [] };
         saveData();
         location.reload();
-      }
+      });
     }
 
     initApp();
